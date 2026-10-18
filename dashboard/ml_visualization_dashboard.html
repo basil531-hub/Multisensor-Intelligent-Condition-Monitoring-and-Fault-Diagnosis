@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drill Bit Predictive Maintenance Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Unbounded:wght@300;600;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0a0c10;
+    --surface:  #111318;
+    --panel:    #181c24;
+    --border:   #252a36;
+    --accent:   #00e5ff;
+    --warn:     #ffb300;
+    --danger:   #ff3d57;
+    --ok:       #00e676;
+    --text:     #e2e8f0;
+    --muted:    #5a6580;
+    --mono:     'DM Mono', monospace;
+    --display:  'Unbounded', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── grid scan-line texture ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,.015) 39px, rgba(255,255,255,.015) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,.015) 39px, rgba(255,255,255,.015) 40px);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,12,16,.9);
+    backdrop-filter: blur(12px);
+  }
+
+  .logo {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 15px;
+    letter-spacing: .08em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--muted); font-weight: 300; }
+
+  .status-badge {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--muted);
+    letter-spacing: .06em; text-transform: uppercase;
+  }
+  .status-badge::before {
+    content: '';
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: .4; }
+  }
+
+  /* ── LAYOUT ── */
+  .wrapper {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    grid-template-rows: auto 1fr;
+    height: calc(100vh - 57px);
+  }
+
+  /* ── SIDEBAR ── */
+  aside {
+    grid-row: 1 / 3;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    padding: 20px 16px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 20px;
+  }
+
+  .sidebar-section { display: flex; flex-direction: column; gap: 8px; }
+  .sidebar-label {
+    font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); padding: 0 4px;
+  }
+
+  .trial-btn {
+    all: unset; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 6px;
+    border: 1px solid transparent;
+    transition: all .18s ease;
+  }
+  .trial-btn:hover { background: var(--panel); border-color: var(--border); }
+  .trial-btn.active {
+    background: rgba(0,229,255,.08);
+    border-color: rgba(0,229,255,.35);
+  }
+  .trial-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .trial-name { font-size: 12px; line-height: 1.3; }
+  .trial-score {
+    margin-left: auto; font-size: 11px;
+    font-family: var(--display); font-weight: 600;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    grid-column: 2;
+    display: flex; gap: 12px; padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .kpi {
+    flex: 1; min-width: 140px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: flex; flex-direction: column; gap: 4px;
+    position: relative; overflow: hidden;
+  }
+  .kpi::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--kpi-color, var(--accent));
+  }
+  .kpi-label { font-size: 9px; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; }
+  .kpi-value {
+    font-family: var(--display); font-size: 22px; font-weight: 900;
+    color: var(--kpi-color, var(--text));
+    line-height: 1;
+  }
+  .kpi-sub { font-size: 10px; color: var(--muted); }
+
+  /* ── MAIN ── */
+  main {
+    grid-column: 2;
+    padding: 20px 24px;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 240px 220px 260px;
+    gap: 14px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 10px;
+    position: relative; overflow: hidden;
+  }
+  .card-title {
+    font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card canvas { flex: 1; min-height: 0; }
+
+  .card.span2 { grid-column: span 2; }
+  .card.span3 { grid-column: span 3; }
+
+  /* ── HEALTH GAUGE ── */
+  .gauge-wrap {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 6px;
+  }
+  .gauge-ring {
+    width: 130px; height: 130px; position: relative;
+  }
+  .gauge-ring svg { width: 100%; height: 100%; }
+  .gauge-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .gauge-num {
+    font-family: var(--display); font-weight: 900; font-size: 28px;
+    line-height: 1;
+  }
+  .gauge-sub { font-size: 9px; color: var(--muted); letter-spacing: .08em; }
+
+  .rec-badge {
+    padding: 7px 14px;
+    border-radius: 4px;
+    font-size: 11px; font-weight: 500;
+    letter-spacing: .04em;
+    text-align: center;
+  }
+
+  /* ── PHASE BAR ── */
+  .phase-bar {
+    width: 100%; height: 22px; border-radius: 4px;
+    display: flex; overflow: hidden;
+  }
+  .phase-seg { height: 100%; transition: width .5s ease; }
+  .phase-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+  .phase-leg-item { display: flex; align-items: center; gap: 5px; font-size: 10px; }
+  .phase-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  /* ── MODEL COMPARISON TABLE ── */
+  .model-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .model-table th {
+    text-align: left; padding: 6px 8px;
+    font-size: 9px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .model-table td { padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,.03); }
+  .model-table tr:hover td { background: rgba(255,255,255,.02); }
+  .bar-cell { display: flex; align-items: center; gap: 8px; }
+  .mini-bar-bg { flex: 1; height: 4px; background: var(--border); border-radius: 2px; }
+  .mini-bar-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+
+  /* ── SENSOR ICONS ── */
+  .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; }
+  .sensor-tile {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .sensor-icon { font-size: 18px; }
+  .sensor-val {
+    font-family: var(--display); font-weight: 600; font-size: 17px;
+    color: var(--accent);
+  }
+  .sensor-name { font-size: 9px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card, .kpi { animation: fadeUp .4s ease both; }
+  .card:nth-child(1) { animation-delay: .05s; }
+  .card:nth-child(2) { animation-delay: .10s; }
+  .card:nth-child(3) { animation-delay: .15s; }
+  .card:nth-child(4) { animation-delay: .20s; }
+  .card:nth-child(5) { animation-delay: .25s; }
+  .card:nth-child(6) { animation-delay: .30s; }
+
+  .confidence-bar-bg {
+    width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .confidence-bar-fill {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), #7c3aed);
+    transition: width .6s ease;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DrillSense <span>/ Predictive Maintenance</span></div>
+  <div class="status-badge">Live Monitoring · 8 bit classes</div>
+</header>
+
+<div class="wrapper">
+
+  <!-- SIDEBAR -->
+  <aside>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Drill Condition</div>
+      <!-- buttons injected by JS -->
+      <div id="trial-list"></div>
+    </div>
+  </aside>
+
+  <!-- TOP KPIs -->
+  <div class="topbar">
+    <div class="kpi" style="--kpi-color:var(--ok)">
+      <div class="kpi-label">Health Score</div>
+      <div class="kpi-value" id="kpi-health">—</div>
+      <div class="kpi-sub">0 = critical · 100 = perfect</div>
+    </div>
+    <div class="kpi" style="--kpi-color:var(--accent)">
+      <div class="kpi-label">Best Accuracy</div>
+      <div class="kpi-value" id="kpi-acc">—</div>
+      <div class="kpi-sub">XGBoost · Dataset C</div>
+    </div>
+    <div class="kpi" style="--kpi-color:var(--warn)">
+      <div class="kpi-label">Condition</div>
+      <div class="kpi-value" id="kpi-cond" style="font-size:13px;padding-top:4px">—</div>
+      <div class="kpi-sub" id="kpi-quality">—</div>
+    </div>
+    <div class="kpi" style="--kpi-color:#a78bfa">
+      <div class="kpi-label">Confidence</div>
+      <div class="kpi-value" id="kpi-conf">—</div>
+      <div class="kpi-sub">Majority-vote window</div>
+    </div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <main>
+
+    <!-- Card 1: Health Gauge -->
+    <div class="card">
+      <div class="card-title">Health Gauge</div>
+      <div class="gauge-wrap">
+        <div class="gauge-ring">
+          <svg viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--border)" stroke-width="10"/>
+            <circle id="gauge-arc" cx="60" cy="60" r="50" fill="none"
+              stroke="var(--ok)" stroke-width="10" stroke-linecap="round"
+              stroke-dasharray="314.16" stroke-dashoffset="314.16"
+              transform="rotate(-90 60 60)"
+              style="transition:stroke-dashoffset .8s ease, stroke .4s ease"/>
+          </svg>
+          <div class="gauge-center">
+            <div class="gauge-num" id="gauge-num" style="color:var(--ok)">—</div>
+            <div class="gauge-sub">HEALTH</div>
+          </div>
+        </div>
+        <div class="rec-badge" id="rec-badge" style="background:rgba(0,230,118,.1);color:var(--ok);border:1px solid rgba(0,230,118,.3)">
+          Select a condition →
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: Sensor Readings -->
+    <div class="card">
+      <div class="card-title">Sensor Snapshot</div>
+      <div class="sensor-grid">
+        <div class="sensor-tile">
+          <div class="sensor-icon">⚡</div>
+          <div class="sensor-val" id="s-cur">—</div>
+          <div class="sensor-name">Current (A)</div>
+        </div>
+        <div class="sensor-tile">
+          <div class="sensor-icon">〰️</div>
+          <div class="sensor-val" id="s-vib">—</div>
+          <div class="sensor-name">Vibration</div>
+        </div>
+        <div class="sensor-tile">
+          <div class="sensor-icon">🌡️</div>
+          <div class="sensor-val" id="s-tmp">—</div>
+          <div class="sensor-name">LM35 Temp (°C)</div>
+        </div>
+        <div class="sensor-tile">
+          <div class="sensor-icon">💧</div>
+          <div class="sensor-val" id="s-hum">—</div>
+          <div class="sensor-name">Humidity (%)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: Phase Distribution -->
+    <div class="card">
+      <div class="card-title">Phase Distribution</div>
+      <div class="phase-bar" id="phase-bar"></div>
+      <div class="phase-legend" id="phase-legend"></div>
+      <div style="flex:1;min-height:0;">
+        <canvas id="phaseChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Card 4+5: Time-series (span 2) -->
+    <div class="card span2">
+      <div class="card-title">Simulated Sensor Time-Series</div>
+      <canvas id="timeChart"></canvas>
+    </div>
+
+    <!-- Card 6: Confidence bar -->
+    <div class="card">
+      <div class="card-title">Model Confidence</div>
+      <div style="display:flex;flex-direction:column;gap:14px;flex:1;justify-content:center">
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:10px;color:var(--muted)">XGBoost</span>
+            <span style="font-size:10px" id="conf-xgb">—</span>
+          </div>
+          <div class="confidence-bar-bg"><div class="confidence-bar-fill" id="conf-bar-xgb" style="width:0%;background:linear-gradient(90deg,var(--accent),#7c3aed)"></div></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:10px;color:var(--muted)">Random Forest</span>
+            <span style="font-size:10px" id="conf-rf">—</span>
+          </div>
+          <div class="confidence-bar-bg"><div class="confidence-bar-fill" id="conf-bar-rf" style="width:0%;background:linear-gradient(90deg,var(--ok),#059669)"></div></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:10px;color:var(--muted)">SVM (RBF)</span>
+            <span style="font-size:10px" id="conf-svm">—</span>
+          </div>
+          <div class="confidence-bar-bg"><div class="confidence-bar-fill" id="conf-bar-svm" style="width:0%;background:linear-gradient(90deg,var(--warn),#d97706)"></div></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:10px;color:var(--muted)">Decision Tree</span>
+            <span style="font-size:10px" id="conf-dt">—</span>
+          </div>
+          <div class="confidence-bar-bg"><div class="confidence-bar-fill" id="conf-bar-dt" style="width:0%;background:linear-gradient(90deg,var(--danger),#be185d)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Model table (span 2) + Sensor contribution -->
+    <div class="card span2">
+      <div class="card-title">Model Performance Comparison</div>
+      <div style="overflow-y:auto;flex:1">
+        <table class="model-table" id="model-table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Dataset</th>
+              <th>CV Acc</th>
+              <th>Test Acc</th>
+              <th>F1</th>
+              <th>Test Accuracy</th>
+            </tr>
+          </thead>
+          <tbody id="model-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Sensor Contribution</div>
+      <canvas id="sensorChart"></canvas>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── DATA ────────────────────────────────────────────────────────
+const CONDITIONS = [
+  { label:'good_aligned',     score:100, color:'#00e676', q:'Good',  c:'Aligned',    cur:3.2,  vib:0.8,  tmp:34.2, hum:52 },
+  { label:'good_misaligned',  score:85,  color:'#69f0ae', q:'Good',  c:'Misaligned', cur:3.8,  vib:1.4,  tmp:35.8, hum:53 },
+  { label:'good_flattened',   score:70,  color:'#ffb300', q:'Good',  c:'Flattened',  cur:4.1,  vib:1.7,  tmp:37.4, hum:55 },
+  { label:'poor_aligned',     score:60,  color:'#ffa726', q:'Poor',  c:'Aligned',    cur:4.5,  vib:2.1,  tmp:39.0, hum:56 },
+  { label:'poor_misaligned',  score:45,  color:'#ff7043', q:'Poor',  c:'Misaligned', cur:5.1,  vib:2.8,  tmp:41.5, hum:58 },
+  { label:'good_broken',      score:30,  color:'#ef5350', q:'Good',  c:'Broken',     cur:2.1,  vib:3.6,  tmp:44.0, hum:60 },
+  { label:'poor_flattened',   score:20,  color:'#e53935', q:'Poor',  c:'Flattened',  cur:5.8,  vib:4.2,  tmp:47.0, hum:62 },
+  { label:'poor_broken',      score:0,   color:'#b71c1c', q:'Poor',  c:'Broken',     cur:1.4,  vib:5.8,  tmp:52.3, hum:65 },
+];
+
+const PHASE_LABELS  = ['Idle','Lowering','Contact','Drilling','Exit','Retraction'];
+const PHASE_COLORS  = ['#5a6580','#38bdf8','#fbbf24','#f87171','#c084fc','#4ade80'];
+// Simulated phase proportions per condition (must sum ~1)
+const PHASE_PROFILES = {
+  good_aligned:    [.10,.12,.08,.55,.08,.07],
+  good_misaligned: [.10,.14,.09,.48,.10,.09],
+  good_flattened:  [.10,.13,.10,.45,.12,.10],
+  poor_aligned:    [.10,.11,.10,.48,.11,.10],
+  poor_misaligned: [.10,.14,.11,.42,.12,.11],
+  good_broken:     [.12,.13,.12,.35,.14,.14],
+  poor_flattened:  [.11,.13,.12,.36,.14,.14],
+  poor_broken:     [.14,.14,.13,.28,.16,.15],
+};
+
+const MODEL_DATA = [
+  { model:'XGBoost',       dataset:'A', cv:.9823, test:.9731, f1:.9728 },
+  { model:'Random Forest', dataset:'A', cv:.9611, test:.9504, f1:.9497 },
+  { model:'SVM (RBF)',     dataset:'A', cv:.9244, test:.9183, f1:.9176 },
+  { model:'Decision Tree', dataset:'A', cv:.8932, test:.8820, f1:.8808 },
+  { model:'XGBoost',       dataset:'B', cv:.9745, test:.9663, f1:.9659 },
+  { model:'Random Forest', dataset:'B', cv:.9540, test:.9421, f1:.9415 },
+  { model:'XGBoost',       dataset:'C', cv:.9871, test:.9802, f1:.9799 },
+  { model:'Random Forest', dataset:'C', cv:.9688, test:.9577, f1:.9571 },
+];
+
+const SENSOR_DATA = {
+  labels:['Vibration','Current','Temperature','Curr+Vib','All Sensors'],
+  values:[0.7842, 0.8561, 0.6923, 0.9134, 0.9731],
+};
+
+// ── CONFIDENCE (simulated per condition) ────────────────────────
+const CONFIDENCE_MAP = {
+  good_aligned:    { xgb:.974, rf:.943, svm:.916, dt:.882 },
+  good_misaligned: { xgb:.961, rf:.932, svm:.908, dt:.871 },
+  good_flattened:  { xgb:.948, rf:.920, svm:.893, dt:.856 },
+  poor_aligned:    { xgb:.942, rf:.914, svm:.887, dt:.849 },
+  poor_misaligned: { xgb:.931, rf:.901, svm:.876, dt:.840 },
+  good_broken:     { xgb:.963, rf:.934, svm:.908, dt:.873 },
+  poor_flattened:  { xgb:.936, rf:.906, svm:.879, dt:.843 },
+  poor_broken:     { xgb:.958, rf:.929, svm:.901, dt:.865 },
+};
+
+const RECOMMENDATIONS = {
+  good_aligned:    { text:'🟢 Healthy Operation',         bg:'rgba(0,230,118,.12)', color:'#00e676', border:'rgba(0,230,118,.3)' },
+  good_misaligned: { text:'🟡 Inspect Alignment',         bg:'rgba(255,179,0,.10)', color:'#ffb300', border:'rgba(255,179,0,.3)'  },
+  good_flattened:  { text:'🟠 Schedule Tool Replacement', bg:'rgba(255,112,67,.10)', color:'#ff7043', border:'rgba(255,112,67,.3)' },
+  poor_aligned:    { text:'🟡 Inspect Alignment',         bg:'rgba(255,179,0,.10)', color:'#ffb300', border:'rgba(255,179,0,.3)'  },
+  poor_misaligned: { text:'🟠 Schedule Tool Replacement', bg:'rgba(255,112,67,.10)', color:'#ff7043', border:'rgba(255,112,67,.3)' },
+  good_broken:     { text:'🔴 Replace Immediately',       bg:'rgba(229,57,53,.12)', color:'#ef5350', border:'rgba(229,57,53,.3)'  },
+  poor_flattened:  { text:'🔴 Replace Immediately',       bg:'rgba(229,57,53,.12)', color:'#ef5350', border:'rgba(229,57,53,.3)'  },
+  poor_broken:     { text:'🔴 Replace Immediately',       bg:'rgba(183,28,28,.15)', color:'#b71c1c', border:'rgba(183,28,28,.4)'  },
+};
+
+// ── CHART INSTANCES ─────────────────────────────────────────────
+let timeChart, phaseChart, sensorChart;
+let currentCond = null;
+
+// ── BUILD SIDEBAR ───────────────────────────────────────────────
+function buildSidebar() {
+  const list = document.getElementById('trial-list');
+  CONDITIONS.forEach(cond => {
+    const btn = document.createElement('button');
+    btn.className = 'trial-btn';
+    btn.dataset.label = cond.label;
+    btn.innerHTML = `
+      <div class="trial-dot" style="background:${cond.color};box-shadow:0 0 6px ${cond.color}40"></div>
+      <div>
+        <div class="trial-name">${cond.c}</div>
+        <div style="font-size:10px;color:var(--muted)">${cond.q} quality</div>
+      </div>
+      <div class="trial-score" style="color:${cond.color}">${cond.score}</div>`;
+    btn.addEventListener('click', () => selectCondition(cond.label));
+    list.appendChild(btn);
+  });
+}
+
+// ── SELECT CONDITION ────────────────────────────────────────────
+function selectCondition(label) {
+  currentCond = label;
+  const cond = CONDITIONS.find(c => c.label === label);
+
+  // Sidebar active state
+  document.querySelectorAll('.trial-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.label === label));
+
+  // KPIs
+  document.getElementById('kpi-health').textContent = cond.score;
+  document.getElementById('kpi-health').style.color  = cond.color;
+  document.getElementById('kpi-acc').textContent     = '98.02%';
+  document.getElementById('kpi-cond').textContent    = cond.c;
+  document.getElementById('kpi-quality').textContent = `${cond.q} Quality Bit`;
+
+  const conf = CONFIDENCE_MAP[label];
+  document.getElementById('kpi-conf').textContent = (conf.xgb * 100).toFixed(1) + '%';
+
+  // Gauge
+  const arc = document.getElementById('gauge-arc');
+  const pct = cond.score / 100;
+  arc.style.strokeDashoffset = 314.16 * (1 - pct);
+  arc.style.stroke = cond.color;
+  document.getElementById('gauge-num').textContent  = cond.score;
+  document.getElementById('gauge-num').style.color  = cond.color;
+
+  // Recommendation
+  const rec = RECOMMENDATIONS[label];
+  const badge = document.getElementById('rec-badge');
+  badge.textContent = rec.text;
+  badge.style.background = rec.bg;
+  badge.style.color      = rec.color;
+  badge.style.borderColor= rec.border;
+
+  // Sensor tiles
+  document.getElementById('s-cur').textContent = cond.cur.toFixed(2);
+  document.getElementById('s-vib').textContent = cond.vib.toFixed(2);
+  document.getElementById('s-tmp').textContent = cond.tmp.toFixed(1);
+  document.getElementById('s-hum').textContent = cond.hum;
+
+  // Confidence bars
+  ['xgb','rf','svm','dt'].forEach(k => {
+    const v = conf[k];
+    document.getElementById(`conf-${k}`).textContent    = (v*100).toFixed(1)+'%';
+    document.getElementById(`conf-bar-${k}`).style.width = (v*100)+'%';
+  });
+
+  // Phase bar + legend
+  renderPhaseBar(label);
+
+  // Charts
+  renderTimeChart(cond);
+  updatePhaseChart(label);
+}
+
+// ── PHASE BAR ───────────────────────────────────────────────────
+function renderPhaseBar(label) {
+  const profile = PHASE_PROFILES[label];
+  const bar     = document.getElementById('phase-bar');
+  const legend  = document.getElementById('phase-legend');
+  bar.innerHTML = '';
+  legend.innerHTML = '';
+  PHASE_LABELS.forEach((ph, i) => {
+    const seg = document.createElement('div');
+    seg.className = 'phase-seg';
+    seg.style.width      = (profile[i]*100)+'%';
+    seg.style.background = PHASE_COLORS[i];
+    seg.title = `${ph}: ${(profile[i]*100).toFixed(0)}%`;
+    bar.appendChild(seg);
+
+    const li = document.createElement('div');
+    li.className = 'phase-leg-item';
+    li.innerHTML = `<div class="phase-dot" style="background:${PHASE_COLORS[i]}"></div>${ph} ${(profile[i]*100).toFixed(0)}%`;
+    legend.appendChild(li);
+  });
+}
+
+// ── TIME CHART ──────────────────────────────────────────────────
+function generateTimeSeries(cond) {
+  const n = 80;
+  const t = Array.from({length:n}, (_,i)=>i*0.5);
+  function noisy(base, amp, noise) {
+    return t.map((_, i) => {
+      const prog = i/n;
+      let v = base;
+      if (prog > 0.05 && prog < 0.15) v += amp * prog * 6;
+      if (prog >= 0.15 && prog < 0.8) v += amp * (0.9 + 0.2*Math.sin(i*0.8));
+      if (prog >= 0.8)  v *= (1 - (prog-0.8)/0.2);
+      return +(v + (Math.random()-0.5)*noise).toFixed(3);
+    });
+  }
+  return {
+    t,
+    cur: noisy(cond.cur, 1.2, 0.3),
+    vib: noisy(cond.vib, 2.0, 0.4),
+    tmp: noisy(cond.tmp, 2.0, 0.2),
+  };
+}
+
+function renderTimeChart(cond) {
+  const { t, cur, vib, tmp } = generateTimeSeries(cond);
+  const ctx = document.getElementById('timeChart').getContext('2d');
+
+  if (timeChart) { timeChart.destroy(); }
+
+  timeChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: t,
+      datasets: [
+        { label:'Current (A)', data:cur, borderColor:'#38bdf8', borderWidth:1.5, pointRadius:0, tension:.4 },
+        { label:'Vibration',   data:vib, borderColor:'#f87171', borderWidth:1.5, pointRadius:0, tension:.4 },
+        { label:'Temp (°C/10)',data:tmp.map(v=>v/10), borderColor:'#fbbf24', borderWidth:1.5, pointRadius:0, tension:.4 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, animation:{duration:600},
+      plugins:{legend:{labels:{color:'#5a6580',font:{family:'DM Mono',size:10},boxWidth:16,padding:14}}},
+      scales:{
+        x:{ticks:{color:'#5a6580',font:{size:9},maxTicksLimit:10},grid:{color:'rgba(255,255,255,.04)'},border:{display:false}},
+        y:{ticks:{color:'#5a6580',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'},border:{display:false}},
+      }
+    }
+  });
+}
+
+// ── PHASE DOUGHNUT ──────────────────────────────────────────────
+function initPhaseChart() {
+  const ctx = document.getElementById('phaseChart').getContext('2d');
+  phaseChart = new Chart(ctx, {
+    type:'doughnut',
+    data:{
+      labels: PHASE_LABELS,
+      datasets:[{ data:[1,1,1,1,1,1], backgroundColor:PHASE_COLORS, borderWidth:0, hoverOffset:4 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      cutout:'72%',
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${(ctx.parsed*100).toFixed(0)}%`},
+          bodyFont:{family:'DM Mono'},titleFont:{family:'DM Mono'}}
+      }
+    }
+  });
+}
+
+function updatePhaseChart(label) {
+  const profile = PHASE_PROFILES[label];
+  phaseChart.data.datasets[0].data = profile;
+  phaseChart.update('active');
+}
+
+// ── SENSOR CONTRIBUTION CHART ────────────────────────────────────
+function initSensorChart() {
+  const ctx = document.getElementById('sensorChart').getContext('2d');
+  sensorChart = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: SENSOR_DATA.labels,
+      datasets:[{
+        data: SENSOR_DATA.values,
+        backgroundColor: SENSOR_DATA.values.map(v =>
+          v > 0.92 ? 'rgba(0,229,255,.7)' : v > 0.85 ? 'rgba(0,230,118,.6)' : 'rgba(90,101,128,.5)'),
+        borderRadius:4, borderWidth:0,
+      }]
+    },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{
+          min:0.5, max:1,
+          ticks:{color:'#5a6580',font:{size:9},callback:v=>(v*100).toFixed(0)+'%'},
+          grid:{color:'rgba(255,255,255,.04)'}, border:{display:false}
+        },
+        y:{ticks:{color:'#9ca3af',font:{size:10,family:'DM Mono'}},grid:{display:false},border:{display:false}}
+      }
+    }
+  });
+}
+
+// ── MODEL TABLE ─────────────────────────────────────────────────
+function buildModelTable() {
+  const tbody = document.getElementById('model-tbody');
+  const datasetColor = { A:'var(--accent)', B:'var(--ok)', C:'#a78bfa' };
+  MODEL_DATA.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="font-weight:500">${row.model}</td>
+      <td><span style="color:${datasetColor[row.dataset]};font-size:10px">Dataset ${row.dataset}</span></td>
+      <td>${(row.cv*100).toFixed(2)}%</td>
+      <td style="font-weight:600;color:${row.test>.96?'var(--ok)':'var(--text)'}">${(row.test*100).toFixed(2)}%</td>
+      <td>${(row.f1*100).toFixed(2)}%</td>
+      <td>
+        <div class="bar-cell">
+          <div class="mini-bar-bg">
+            <div class="mini-bar-fill" style="width:${((row.test-.5)/(1-.5)*100)}%;background:${datasetColor[row.dataset]}"></div>
+          </div>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── INIT ─────────────────────────────────────────────────────────
+buildSidebar();
+buildModelTable();
+initPhaseChart();
+initSensorChart();
+
+// Select first condition by default
+selectCondition('good_aligned');
+</script>
+</body>
+</html>
